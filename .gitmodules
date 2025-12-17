@@ -1,0 +1,3 @@
+[submodule "src/native/third_party/wuffs"]
+	path = src/native/third_party/wuffs
+	url = https://github.com/google/wuffs
