@@ -149,12 +149,31 @@ tasks.register<Copy>("copyNative") {
     onlyIf { platformId != null }
     dependsOn("buildNative")
 
+    val configDirs =
+        if (isWindows) listOf("Release", "RelWithDebInfo", "MinSizeRel", "Debug") else emptyList()
+
     from(nativeBuildDir) {
         include(nativeLibFileName)
         include("**/$nativeLibFileName")
     }
+    for (dir in configDirs) {
+        from(nativeBuildDir.map { it.dir(dir) }) {
+            include(nativeLibFileName)
+            include("**/$nativeLibFileName")
+        }
+    }
     into(nativeResourcesDir)
     rename { nativeLibFileName }
+
+    doLast {
+        val outFile = nativeResourcesDir.get().asFile.resolve(nativeLibFileName)
+        if (!outFile.isFile) {
+            throw GradleException(
+                "Native library was not copied into resources: ${outFile.absolutePath}. " +
+                    "Check CMake output location under ${nativeBuildDir.get().asFile.absolutePath}."
+            )
+        }
+    }
 }
 
 tasks.named<ProcessResources>("processResources") {
