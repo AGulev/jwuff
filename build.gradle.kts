@@ -130,7 +130,9 @@ tasks.register<Exec>("configureNative") {
         "cmake",
         "-S", nativeSourceDir.asFile.absolutePath,
         "-B", nativeBuildDir.get().asFile.absolutePath,
-        "-DCMAKE_BUILD_TYPE=Release",
+        *(if (isWindows) emptyList() else listOf("-DCMAKE_BUILD_TYPE=Release")).toTypedArray(),
+        // Visual Studio uses a multi-config generator; restrict to Release to avoid accidental Debug builds.
+        *(if (isWindows) listOf("-DCMAKE_CONFIGURATION_TYPES=Release") else emptyList()).toTypedArray(),
         *(if (isMac) listOf("-DCMAKE_OSX_DEPLOYMENT_TARGET=11.0") else emptyList()).toTypedArray(),
     )
 }
