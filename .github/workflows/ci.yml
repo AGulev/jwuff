@@ -4,6 +4,9 @@ on:
   push:
   pull_request:
 
+permissions:
+  contents: write
+
 jobs:
   test:
     strategy:
@@ -57,16 +60,17 @@ jobs:
       - name: Download native artifacts
         uses: actions/download-artifact@v4
         with:
-          path: build/all-natives
+          # Must not live under `build/` because we run `gradle clean`, which deletes it.
+          path: all-natives
           pattern: native-*
           merge-multiple: true
 
       - name: Assemble jar (includes natives)
-        run: ./gradlew --no-daemon clean jar -PnativesDir=build/all-natives
+        run: ./gradlew --no-daemon clean jar -PnativesDir=all-natives
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
+          token: ${{ secrets.GITHUB_TOKEN }}
           files: |
             build/libs/*.jar
-            build/all-natives/**/*
