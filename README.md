@@ -1,5 +1,7 @@
 # jwuff: Wuffs the Library for Java
 
+[![CI](https://github.com/AGulev/jwuff/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/AGulev/jwuff/actions/workflows/ci.yml)
+
 Wuffs-backed ImageIO readers for macOS arm64, built with Gradle.
 
 ## Supported formats (current)
