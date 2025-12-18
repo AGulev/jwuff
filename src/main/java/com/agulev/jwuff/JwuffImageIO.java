@@ -1,11 +1,20 @@
 package com.agulev.jwuff;
 
+import com.agulev.jwuff.io.ByteArrayImageInputStream;
+import com.agulev.jwuff.spi.ByteArrayImageInputStreamSpi;
 import com.agulev.jwuff.spi.WuffsJpegImageReaderSpi;
 import com.agulev.jwuff.spi.WuffsPngImageReaderSpi;
 
+import javax.imageio.ImageIO;
+import javax.imageio.ImageReader;
 import javax.imageio.spi.IIORegistry;
+import javax.imageio.spi.ImageInputStreamSpi;
 import javax.imageio.spi.ImageReaderSpi;
+import javax.imageio.stream.ImageInputStream;
+import java.awt.image.BufferedImage;
+import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Locale;
 
@@ -34,13 +43,76 @@ public final class JwuffImageIO {
     public static void register(boolean preferJwuff) {
         IIORegistry registry = IIORegistry.getDefaultInstance();
 
+        ByteArrayImageInputStreamSpi bytesIis = new ByteArrayImageInputStreamSpi();
         WuffsPngImageReaderSpi png = new WuffsPngImageReaderSpi();
         WuffsJpegImageReaderSpi jpeg = new WuffsJpegImageReaderSpi();
+
+        registry.registerServiceProvider(bytesIis);
         registry.registerServiceProvider(png);
         registry.registerServiceProvider(jpeg);
 
         if (preferJwuff) {
+            preferByteArrayImageInputStream(registry, bytesIis);
             preferOverKnownBuiltins(registry, png, jpeg);
+        }
+    }
+
+    private static void preferByteArrayImageInputStream(IIORegistry registry, ImageInputStreamSpi bytesIis) {
+        List<ImageInputStreamSpi> all = new ArrayList<>();
+        registry.getServiceProviders(ImageInputStreamSpi.class, false).forEachRemaining(all::add);
+
+        for (ImageInputStreamSpi spi : all) {
+            if (spi == bytesIis) continue;
+            Class<?> inputClass = spi.getInputClass();
+            if (inputClass == byte[].class) {
+                registry.setOrdering(ImageInputStreamSpi.class, bytesIis, spi);
+            }
+        }
+    }
+
+    /**
+     * Creates a seekable {@link ImageInputStream} over {@code bytes} without copying.
+     *
+     * <p>Using {@code ImageIO.read(ImageInputStream)} with this stream avoids the extra buffering that
+     * {@code ImageIO.read(InputStream)} may perform.</p>
+     */
+    public static ImageInputStream createImageInputStream(byte[] bytes) {
+        if (bytes == null) throw new IllegalArgumentException("bytes == null");
+        return new ByteArrayImageInputStream(bytes);
+    }
+
+    /**
+     * Decodes {@code bytes} using jwuff's ImageReaders (PNG/JPEG) without copying the input bytes.
+     *
+     * <p>This does not rely on ImageIO plugin discovery; it instantiates jwuff SPIs directly.</p>
+     */
+    public static BufferedImage read(byte[] bytes) throws IOException {
+        if (bytes == null || bytes.length == 0) throw new IllegalArgumentException("bytes is empty");
+
+        try (ImageInputStream iis = createImageInputStream(bytes)) {
+            ImageReaderSpi spi;
+            WuffsPngImageReaderSpi png = new WuffsPngImageReaderSpi();
+            if (png.canDecodeInput(iis)) {
+                spi = png;
+            } else {
+                WuffsJpegImageReaderSpi jpeg = new WuffsJpegImageReaderSpi();
+                if (jpeg.canDecodeInput(iis)) {
+                    spi = jpeg;
+                } else {
+                    // Fall back to ImageIO's default pipeline if it's not PNG/JPEG.
+                    iis.seek(0);
+                    return ImageIO.read(iis);
+                }
+            }
+
+            ImageReader reader = spi.createReaderInstance();
+            try {
+                iis.seek(0);
+                reader.setInput(iis, false, true);
+                return reader.read(0);
+            } finally {
+                reader.dispose();
+            }
         }
     }
 
@@ -72,4 +144,3 @@ public final class JwuffImageIO {
         return false;
     }
 }
-

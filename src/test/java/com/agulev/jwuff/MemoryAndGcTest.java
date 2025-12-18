@@ -28,6 +28,7 @@ class MemoryAndGcTest {
         byte[] png = readResourceBytes("/images/test.png");
 
         ImageIO.scanForPlugins();
+        JwuffImageIO.register(true);
         boolean prevUseCache = ImageIO.getUseCache();
         ImageIO.setUseCache(false);
 
@@ -42,18 +43,19 @@ class MemoryAndGcTest {
 
             CycleResult standard = runCycle("standard", () -> readWithStandardImageIo(png));
             CycleResult jwuffImageIo = runCycle("jwuff(ImageIO.read)", () -> readWithJwuffImageIo(png));
+            CycleResult jwuffImageIoNoCopy = runCycle("jwuff(ImageIO.read no-copy)", () -> readWithJwuffImageIoNoCopy(png));
             CycleResult jwuffDirect = runCycle("jwuff(direct)", () -> readWithJwuffDirect(png));
 
-            printTable(standard, jwuffImageIo, jwuffDirect);
+            printTable(standard, jwuffImageIo, jwuffImageIoNoCopy, jwuffDirect);
 
-            for (CycleResult r : new CycleResult[]{jwuffImageIo, jwuffDirect}) {
+            for (CycleResult r : new CycleResult[]{jwuffImageIo, jwuffImageIoNoCopy, jwuffDirect}) {
                 if (standard.allocatedBytes >= 0 && r.allocatedBytes >= 0) {
                     assertTrue(r.allocatedBytes <= standard.allocatedBytes * 1.10,
                             "Expected " + r.label + " allocated bytes not worse than standard by >10% (env-dependent): " +
                                     r.label + "=" + r.allocatedBytes + ", standard=" + standard.allocatedBytes);
                 }
             }
-            for (CycleResult r : new CycleResult[]{standard, jwuffImageIo, jwuffDirect}) {
+            for (CycleResult r : new CycleResult[]{standard, jwuffImageIo, jwuffImageIoNoCopy, jwuffDirect}) {
                 assertTrue(r.afterDropGcUsedBytes < 512L * 1024 * 1024,
                         "Expected " + r.label + " heap used after drop+GC < 512 MiB, got: " + fmtBytes(r.afterDropGcUsedBytes));
             }
@@ -67,6 +69,27 @@ class MemoryAndGcTest {
             return ImageIO.read(new ByteArrayInputStream(bytes));
         } catch (Exception e) {
             throw new RuntimeException(e);
+        }
+    }
+
+    private static BufferedImage readWithJwuffImageIoNoCopy(byte[] bytes) {
+        ImageInputStream iis = null;
+        try {
+            iis = JwuffImageIO.createImageInputStream(bytes);
+            assertNotNull(iis);
+            BufferedImage img = ImageIO.read(iis);
+            assertNotNull(img);
+            return img;
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        } finally {
+            if (iis != null) {
+                try {
+                    // Some ImageIO readers close the stream; ignore double-close for this memory benchmark.
+                    iis.close();
+                } catch (Exception ignored) {
+                }
+            }
         }
     }
 

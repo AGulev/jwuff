@@ -18,12 +18,15 @@ import java.awt.image.SampleModel;
 import java.awt.image.WritableRaster;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Collections;
 import java.util.Iterator;
 import java.util.Locale;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
+import com.agulev.jwuff.io.ByteArrayImageInputStream;
 import com.agulev.jwuff.model.ProbeResult;
 import com.agulev.jwuff.metadata.BasicImageMetadata;
 import com.agulev.jwuff.nativelib.WuffsFFI;
@@ -33,7 +36,7 @@ public abstract class AbstractWuffsImageReader extends ImageReader {
     private static final Logger LOG = Logger.getLogger(AbstractWuffsImageReader.class.getName());
     private static final boolean LOG_DECODE = Boolean.getBoolean("jwuff.log.decode");
     private ProbeResult probe;
-    private byte[] inputBytes;
+    private InputData inputData;
 
     protected AbstractWuffsImageReader(ImageReaderSpi originatingProvider) {
         super(originatingProvider);
@@ -104,7 +107,8 @@ public abstract class AbstractWuffsImageReader extends ImageReader {
 
         byte[] pixels = new byte[pixelLen];
         try {
-            WuffsFFI.decodeFrameInto(inputBytes(), imageIndex, pixels);
+            InputData in = inputData();
+            WuffsFFI.decodeFrameInto(in.data, in.offset, in.length, imageIndex, pixels);
         } catch (WuffsException e) {
             throw new IIOException(e.getMessage(), e);
         }
@@ -132,7 +136,7 @@ public abstract class AbstractWuffsImageReader extends ImageReader {
     public void setInput(Object input, boolean seekForwardOnly, boolean ignoreMetadata) {
         super.setInput(input, seekForwardOnly, ignoreMetadata);
         this.probe = null;
-        this.inputBytes = null;
+        this.inputData = null;
     }
 
     @Override
@@ -144,13 +148,14 @@ public abstract class AbstractWuffsImageReader extends ImageReader {
         ProbeResult cached = probe;
         if (cached != null) return cached;
 
-        ProbeResult result = WuffsFFI.probe(inputBytes());
+        InputData in = inputData();
+        ProbeResult result = WuffsFFI.probe(in.data, in.offset, in.length);
         this.probe = result;
         return result;
     }
 
-    protected final byte[] inputBytes() {
-        byte[] cached = inputBytes;
+    private InputData inputData() {
+        InputData cached = inputData;
         if (cached != null) return cached;
 
         Object in = getInput();
@@ -158,8 +163,14 @@ public abstract class AbstractWuffsImageReader extends ImageReader {
             throw new IllegalStateException("Expected ImageInputStream input");
         }
 
-        inputBytes = readAllBytes(stream);
-        return inputBytes;
+        if (stream instanceof ByteArrayImageInputStream bais) {
+            inputData = new InputData(bais.array(), bais.arrayOffset(), bais.arrayLength());
+            return inputData;
+        }
+
+        byte[] bytes = readAllBytes(stream);
+        inputData = new InputData(bytes, 0, bytes.length);
+        return inputData;
     }
 
     private static byte[] readAllBytes(ImageInputStream stream) {
@@ -174,14 +185,39 @@ public abstract class AbstractWuffsImageReader extends ImageReader {
             if (pos != 0) {
                 stream.seek(0);
             }
-            ByteArrayOutputStream out = new ByteArrayOutputStream();
+
+            long len = -1;
+            try {
+                len = stream.length();
+            } catch (IOException ignored) {
+            }
+            if (len >= 0 && len <= Integer.MAX_VALUE) {
+                byte[] bytes = new byte[(int) len];
+                stream.readFully(bytes);
+                return bytes;
+            }
+
+            // Unknown length: read into fixed-size chunks, then join with a single final copy.
+            List<byte[]> chunks = new ArrayList<>();
+            int total = 0;
             byte[] buf = new byte[8192];
             while (true) {
                 int n = stream.read(buf);
                 if (n < 0) break;
-                out.write(buf, 0, n);
+                if (n == 0) continue;
+                byte[] chunk = new byte[n];
+                System.arraycopy(buf, 0, chunk, 0, n);
+                chunks.add(chunk);
+                total += n;
             }
-            return out.toByteArray();
+
+            byte[] all = new byte[total];
+            int at = 0;
+            for (byte[] c : chunks) {
+                System.arraycopy(c, 0, all, at, c.length);
+                at += c.length;
+            }
+            return all;
         } catch (IOException e) {
             throw new IllegalStateException("Failed to read ImageInputStream", e);
         } finally {
@@ -216,4 +252,6 @@ public abstract class AbstractWuffsImageReader extends ImageReader {
         );
         return new BufferedImage(cm, raster, false, null);
     }
+
+    private record InputData(byte[] data, int offset, int length) {}
 }

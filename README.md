@@ -44,8 +44,26 @@ Once the jar is on your classpath, `ImageIO.read(...)` should pick jwuff automat
 If you run under a custom classloader or with `java -jar ...` (which can break ImageIO plugin discovery), call:
 
 ```java
-com.agulev.jwuff.JwuffImageIO.register();
 javax.imageio.ImageIO.scanForPlugins(); // optional, but helps in some environments
+com.agulev.jwuff.JwuffImageIO.register();
+```
+
+### No-copy `byte[]` decode (recommended for in-memory assets)
+
+`ImageIO.read(InputStream)` typically wraps the stream in an `ImageInputStream` implementation that may add extra
+buffering and copying. If you already have the image bytes in memory, use a seekable `ImageInputStream` backed by the
+same `byte[]`:
+
+```java
+try (var iis = com.agulev.jwuff.JwuffImageIO.createImageInputStream(bytes)) {
+    var img = javax.imageio.ImageIO.read(iis);
+}
+```
+
+Or decode directly via jwuff (does not rely on ImageIO plugin discovery):
+
+```java
+var img = com.agulev.jwuff.JwuffImageIO.read(bytes); // PNG/JPEG
 ```
 
 ## Native dependency

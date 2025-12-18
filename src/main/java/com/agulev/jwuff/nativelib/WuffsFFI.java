@@ -39,14 +39,22 @@ public final class WuffsFFI {
     }
 
     public static ProbeResult probe(byte[] data) {
-        if (data == null || data.length == 0) {
+        return probe(data, 0, data == null ? 0 : data.length);
+    }
+
+    public static ProbeResult probe(byte[] data, int offset, int length) {
+        if (data == null || length <= 0) {
             throw new IllegalArgumentException("data is empty");
+        }
+        if (offset < 0 || length < 0 || offset > data.length || (offset + length) > data.length) {
+            throw new IllegalArgumentException("Invalid offset/length for array: offset=" + offset + ", length=" + length);
         }
 
         MethodHandle mh = probeMethodHandle();
         try (Arena arena = Arena.ofConfined()) {
             MemorySegment out = arena.allocate(WuffsTypes.PROBE_RESULT_LAYOUT);
-            int code = (int) mh.invoke(MemorySegment.ofArray(data), (long) data.length, out);
+            MemorySegment input = MemorySegment.ofArray(data).asSlice(offset, length);
+            int code = (int) mh.invoke(input, (long) length, out);
             if (code != 0) {
                 throw new WuffsException(code, "wuffs_probe_image failed: " + errorMessage(code) + " (" + code + ")");
             }
@@ -75,19 +83,23 @@ public final class WuffsFFI {
     }
 
     public static FrameResult decodeFrameInto(byte[] data, int frameIndex, byte[] dstPixels) {
-        if (data == null || data.length == 0) {
-            throw new IllegalArgumentException("data is empty");
+        return decodeFrameInto(data, 0, data == null ? 0 : data.length, frameIndex, dstPixels);
+    }
+
+    public static FrameResult decodeFrameInto(byte[] data, int dataOffset, int dataLength, int frameIndex, byte[] dstPixels) {
+        if (data == null || dataLength <= 0) throw new IllegalArgumentException("data is empty");
+        if (dataOffset < 0 || dataLength < 0 || dataOffset > data.length || (dataOffset + dataLength) > data.length) {
+            throw new IllegalArgumentException("Invalid offset/length for array: offset=" + dataOffset + ", length=" + dataLength);
         }
-        if (dstPixels == null || dstPixels.length == 0) {
-            throw new IllegalArgumentException("dstPixels is empty");
-        }
+        if (dstPixels == null || dstPixels.length == 0) throw new IllegalArgumentException("dstPixels is empty");
 
         MethodHandle mh = decodeMethodHandle();
         try (Arena arena = Arena.ofConfined()) {
             MemorySegment out = arena.allocate(WuffsTypes.FRAME_RESULT_LAYOUT);
+            MemorySegment input = MemorySegment.ofArray(data).asSlice(dataOffset, dataLength);
             int code = (int) mh.invoke(
-                    MemorySegment.ofArray(data),
-                    (long) data.length,
+                    input,
+                    (long) dataLength,
                     frameIndex,
                     MemorySegment.NULL,
                     MemorySegment.ofArray(dstPixels),
