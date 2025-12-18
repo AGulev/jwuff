@@ -38,6 +38,16 @@ Using the Gradle Wrapper:
 
 - `./gradlew --no-daemon test`
 
+## Using in another project
+
+Once the jar is on your classpath, `ImageIO.read(...)` should pick jwuff automatically via `META-INF/services`.
+If you run under a custom classloader or with `java -jar ...` (which can break ImageIO plugin discovery), call:
+
+```java
+com.agulev.jwuff.JwuffImageIO.register();
+javax.imageio.ImageIO.scanForPlugins(); // optional, but helps in some environments
+```
+
 ## Native dependency
 
 This repo uses a pinned Wuffs git submodule:
