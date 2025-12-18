@@ -72,6 +72,7 @@ val nativeResourcesRoot = layout.buildDirectory.dir("generated-resources")
 val nativeResourcesDir = nativeResourcesRoot.map { it.dir("natives/${platformId ?: "unknown"}") }
 
 val nativesDirProperty = providers.gradleProperty("nativesDir")
+val bundleExternalNatives = nativesDirProperty.isPresent
 
 fun Test.collectAllIncludePatterns(): Set<String> {
     val patterns = linkedSetOf<String>()
@@ -110,7 +111,7 @@ gradle.taskGraph.whenReady {
 }
 
 tasks.register("verifyWuffsSubmodule") {
-    onlyIf { platformId != null }
+    onlyIf { platformId != null && !bundleExternalNatives }
     doLast {
         val releaseC = file("src/native/third_party/wuffs/release/c")
         if (!releaseC.isDirectory) {
@@ -124,7 +125,7 @@ tasks.register("verifyWuffsSubmodule") {
 }
 
 tasks.register<Exec>("configureNative") {
-    onlyIf { platformId != null }
+    onlyIf { platformId != null && !bundleExternalNatives }
     dependsOn("verifyWuffsSubmodule")
     commandLine(
         "cmake",
@@ -138,7 +139,7 @@ tasks.register<Exec>("configureNative") {
 }
 
 tasks.register<Exec>("buildNative") {
-    onlyIf { platformId != null }
+    onlyIf { platformId != null && !bundleExternalNatives }
     dependsOn("configureNative")
     commandLine(
         "cmake",
@@ -148,7 +149,7 @@ tasks.register<Exec>("buildNative") {
 }
 
 tasks.register<Copy>("copyNative") {
-    onlyIf { platformId != null }
+    onlyIf { platformId != null && !bundleExternalNatives }
     dependsOn("buildNative")
 
     val configDirs =
@@ -179,10 +180,13 @@ tasks.register<Copy>("copyNative") {
 }
 
 tasks.named<ProcessResources>("processResources") {
-    dependsOn("copyNative")
+    if (!bundleExternalNatives) {
+        dependsOn("copyNative")
+    }
     from(nativeResourcesRoot)
     // Used by the release job to bundle all downloaded native artifacts.
     if (nativesDirProperty.isPresent) {
         from(file(nativesDirProperty.get()))
     }
+    duplicatesStrategy = DuplicatesStrategy.EXCLUDE
 }
