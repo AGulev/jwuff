@@ -4,6 +4,9 @@ import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.Test;
 
 import javax.imageio.ImageIO;
+import javax.imageio.ImageReader;
+import javax.imageio.spi.ImageReaderSpi;
+import javax.imageio.stream.ImageInputStream;
 import java.awt.image.BufferedImage;
 import java.io.ByteArrayInputStream;
 import java.io.InputStream;
@@ -25,28 +28,41 @@ class MemoryAndGcTest {
         byte[] png = readResourceBytes("/images/test.png");
 
         ImageIO.scanForPlugins();
+        boolean prevUseCache = ImageIO.getUseCache();
+        ImageIO.setUseCache(false);
 
-        System.out.println("=== MemoryAndGcTest ===");
-        System.out.printf(Locale.ROOT, "java=%s; maxHeapMiB=%d%n", System.getProperty("java.version"), Runtime.getRuntime().maxMemory() / (1024 * 1024));
-        System.out.printf(Locale.ROOT, "test.png bytes=%d%n", png.length);
+        try {
+            System.out.println("=== MemoryAndGcTest ===");
+            System.out.printf(Locale.ROOT, "java=%s; maxHeapMiB=%d; ImageIO.useCache=%s%n",
+                    System.getProperty("java.version"),
+                    Runtime.getRuntime().maxMemory() / (1024 * 1024),
+                    ImageIO.getUseCache()
+            );
+            System.out.printf(Locale.ROOT, "test.png bytes=%d%n", png.length);
 
-        CycleResult standard = runCycle("standard", () -> readWithStandardImageIo(png));
-        CycleResult jwuff = runCycle("jwuff", () -> readWithJwuff(png));
+            CycleResult standard = runCycle("standard", () -> readWithStandardImageIo(png));
+            CycleResult jwuffImageIo = runCycle("jwuff(ImageIO.read)", () -> readWithJwuffImageIo(png));
+            CycleResult jwuffDirect = runCycle("jwuff(direct)", () -> readWithJwuffDirect(png));
 
-        printTable(standard, jwuff);
+            printTable(standard, jwuffImageIo, jwuffDirect);
 
-        if (standard.allocatedBytes >= 0 && jwuff.allocatedBytes >= 0) {
-            assertTrue(jwuff.allocatedBytes <= standard.allocatedBytes * 1.10,
-                    "Expected jwuff allocated bytes not worse than standard by >10% (env-dependent): jwuff=" +
-                            jwuff.allocatedBytes + ", standard=" + standard.allocatedBytes);
+            for (CycleResult r : new CycleResult[]{jwuffImageIo, jwuffDirect}) {
+                if (standard.allocatedBytes >= 0 && r.allocatedBytes >= 0) {
+                    assertTrue(r.allocatedBytes <= standard.allocatedBytes * 1.10,
+                            "Expected " + r.label + " allocated bytes not worse than standard by >10% (env-dependent): " +
+                                    r.label + "=" + r.allocatedBytes + ", standard=" + standard.allocatedBytes);
+                }
+            }
+            for (CycleResult r : new CycleResult[]{standard, jwuffImageIo, jwuffDirect}) {
+                assertTrue(r.afterDropGcUsedBytes < 512L * 1024 * 1024,
+                        "Expected " + r.label + " heap used after drop+GC < 512 MiB, got: " + fmtBytes(r.afterDropGcUsedBytes));
+            }
+        } finally {
+            ImageIO.setUseCache(prevUseCache);
         }
-        assertTrue(standard.afterDropGcUsedBytes < 512L * 1024 * 1024,
-                "Expected standard heap used after drop+GC < 512 MiB, got: " + fmtBytes(standard.afterDropGcUsedBytes));
-        assertTrue(jwuff.afterDropGcUsedBytes < 512L * 1024 * 1024,
-                "Expected jwuff heap used after drop+GC < 512 MiB, got: " + fmtBytes(jwuff.afterDropGcUsedBytes));
     }
 
-    private static BufferedImage readWithJwuff(byte[] bytes) {
+    private static BufferedImage readWithJwuffImageIo(byte[] bytes) {
         try {
             return ImageIO.read(new ByteArrayInputStream(bytes));
         } catch (Exception e) {
@@ -57,6 +73,24 @@ class MemoryAndGcTest {
     private static BufferedImage readWithStandardImageIo(byte[] bytes) {
         try {
             return PerformanceComparisonTest.withWuffsProvidersDisabledForTest(() -> ImageIO.read(new ByteArrayInputStream(bytes)));
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    private static BufferedImage readWithJwuffDirect(byte[] bytes) {
+        try {
+            ImageReaderSpi spi = new com.agulev.jwuff.spi.WuffsPngImageReaderSpi();
+            ImageReader reader = spi.createReaderInstance();
+            try (ImageInputStream iis = ImageIO.createImageInputStream(new ByteArrayInputStream(bytes))) {
+                assertNotNull(iis);
+                reader.setInput(iis, false, true);
+                BufferedImage img = reader.read(0);
+                assertNotNull(img);
+                return img;
+            } finally {
+                reader.dispose();
+            }
         } catch (Exception e) {
             throw new RuntimeException(e);
         }
@@ -117,29 +151,58 @@ class MemoryAndGcTest {
         return String.format(java.util.Locale.ROOT, "%.1f MiB", mib);
     }
 
-    private static void printTable(CycleResult standard, CycleResult jwuff) {
-        String[][] rows = new String[][]{
-                {"gc + measure(before)", fmtBytes(standard.beforeUsedBytes), fmtBytes(jwuff.beforeUsedBytes)},
-                {"read + measure(after)", fmtBytes(standard.afterReadUsedBytes), fmtBytes(jwuff.afterReadUsedBytes)},
-                {"drop + gc + measure(after)", fmtBytes(standard.afterDropGcUsedBytes), fmtBytes(jwuff.afterDropGcUsedBytes)},
-                {"allocated bytes (ThreadMXBean)", standard.allocatedBytes >= 0 ? fmtBytes(standard.allocatedBytes) : "n/a", jwuff.allocatedBytes >= 0 ? fmtBytes(jwuff.allocatedBytes) : "n/a"},
-                {"read time", standard.readMillis + " ms", jwuff.readMillis + " ms"},
+    private static void printTable(CycleResult... results) {
+        String[] steps = new String[]{
+                "gc + measure(before)",
+                "read + measure(after)",
+                "drop + gc + measure(after)",
+                "allocated bytes (ThreadMXBean)",
+                "read time",
         };
 
-        int c0 = "step".length();
-        int c1 = standard.label.length();
-        int c2 = jwuff.label.length();
-        for (String[] r : rows) {
-            c0 = Math.max(c0, r[0].length());
-            c1 = Math.max(c1, r[1].length());
-            c2 = Math.max(c2, r[2].length());
+        String[][] cell = new String[steps.length][results.length + 1];
+        for (int r = 0; r < steps.length; r++) {
+            cell[r][0] = steps[r];
+        }
+        for (int c = 0; c < results.length; c++) {
+            CycleResult res = results[c];
+            cell[0][c + 1] = fmtBytes(res.beforeUsedBytes);
+            cell[1][c + 1] = fmtBytes(res.afterReadUsedBytes);
+            cell[2][c + 1] = fmtBytes(res.afterDropGcUsedBytes);
+            cell[3][c + 1] = res.allocatedBytes >= 0 ? fmtBytes(res.allocatedBytes) : "n/a";
+            cell[4][c + 1] = res.readMillis + " ms";
+        }
+
+        int[] widths = new int[results.length + 1];
+        widths[0] = "step".length();
+        for (String s : steps) widths[0] = Math.max(widths[0], s.length());
+        for (int c = 0; c < results.length; c++) {
+            widths[c + 1] = results[c].label.length();
+            for (int r = 0; r < steps.length; r++) {
+                widths[c + 1] = Math.max(widths[c + 1], cell[r][c + 1].length());
+            }
         }
 
         System.out.println();
-        System.out.printf(Locale.ROOT, "%-" + c0 + "s | %-" + c1 + "s | %-" + c2 + "s%n", "step", standard.label, jwuff.label);
-        System.out.printf(Locale.ROOT, "%s-+-%s-+-%s%n", "-".repeat(c0), "-".repeat(c1), "-".repeat(c2));
-        for (String[] r : rows) {
-            System.out.printf(Locale.ROOT, "%-" + c0 + "s | %-" + c1 + "s | %-" + c2 + "s%n", r[0], r[1], r[2]);
+        System.out.printf(Locale.ROOT, "%-" + widths[0] + "s", "step");
+        for (int c = 0; c < results.length; c++) {
+            System.out.printf(Locale.ROOT, " | %-" + widths[c + 1] + "s", results[c].label);
+        }
+        System.out.println();
+
+        System.out.print("-".repeat(widths[0]));
+        for (int c = 0; c < results.length; c++) {
+            System.out.print("-+-");
+            System.out.print("-".repeat(widths[c + 1]));
+        }
+        System.out.println();
+
+        for (int r = 0; r < steps.length; r++) {
+            System.out.printf(Locale.ROOT, "%-" + widths[0] + "s", cell[r][0]);
+            for (int c = 0; c < results.length; c++) {
+                System.out.printf(Locale.ROOT, " | %-" + widths[c + 1] + "s", cell[r][c + 1]);
+            }
+            System.out.println();
         }
         System.out.println();
     }
