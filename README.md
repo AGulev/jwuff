@@ -34,10 +34,9 @@ If you have Gradle installed:
 
 - `gradle test`
 
-To add the Gradle Wrapper (recommended):
+Using the Gradle Wrapper:
 
-- `gradle wrapper`
-- then use `./gradlew test`
+- `./gradlew --no-daemon test`
 
 ## Native dependency
 
@@ -59,3 +58,24 @@ Version is stored in `VERSION`.
 
 - Tag and push: `git tag v$(cat VERSION) && git push --tags`
 - CI builds native libs for each platform and publishes a GitHub release with the jar.
+
+## Tests (optional / not run by default)
+
+Some tests are intentionally gated because they can be slow or flaky on CI runners.
+
+- Performance benchmark (gated):  
+  `./gradlew --no-daemon test --tests com.agulev.jwuff.PerformanceComparisonTest`  
+  (also works with `-Djwuff.perf=true`)
+- Java-side memory + GC behavior (gated):  
+  `./gradlew --no-daemon test --tests com.agulev.jwuff.MemoryAndGcTest`  
+  (also works with `-Djwuff.mem=true`)
+- Multithreaded stress test (gated):  
+  `./gradlew --no-daemon test --tests com.agulev.jwuff.PngMultithreadedStressTest`  
+  (also works with `-Djwuff.stress=true`)
+
+## Performance
+
+Measured on MacBook Pro M1 Max using `PerformanceComparisonTest` with `test.png` (16384×16384):
+
+- Standard `ImageIO.read`: 2326.05 ms avg
+- `jwuff` (Wuffs-backed): 458.12 ms avg
