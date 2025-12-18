@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/AGulev/jwuff/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/AGulev/jwuff/actions/workflows/ci.yml)
 
-Wuffs-backed ImageIO readers for macOS arm64, built with Gradle.
+Wuffs-backed ImageIO readers for multiple platforms, built with Gradle.
 
 ## Supported formats (current)
 
@@ -17,6 +17,9 @@ Other formats are intentionally deferred until the core pipeline is solid.
 - macOS x86_64 (`x86_64-macos`)
 - Linux x86_64 (`x86_64-linux`)
 - Windows x86_64 (`x86_64-win32`)
+
+On x86_64 platforms, the jar may contain both a baseline native library and an AVX2-optimized variant.
+At runtime, jwuff selects the AVX2 variant only when the CPU+OS support AVX2.
 
 ## Structure
 

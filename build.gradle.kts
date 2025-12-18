@@ -66,6 +66,14 @@ val nativeLibFileName = when {
     else -> "libwuffs_imageio.so"
 }
 
+val avx2NativeLibFileName = when {
+    isWindows -> "wuffs_imageio_avx2.dll"
+    isMac -> "libwuffs_imageio_avx2.dylib"
+    else -> "libwuffs_imageio_avx2.so"
+}
+
+val buildAvx2Variant = isX64 && (isWindows || isLinux || (isMac && !isArm64))
+
 val nativeSourceDir = layout.projectDirectory.dir("src/native")
 val nativeBuildDir = layout.buildDirectory.dir("native/build")
 val nativeResourcesRoot = layout.buildDirectory.dir("generated-resources")
@@ -155,26 +163,36 @@ tasks.register<Copy>("copyNative") {
     val configDirs =
         if (isWindows) listOf("Release", "RelWithDebInfo", "MinSizeRel", "Debug") else emptyList()
 
-    from(nativeBuildDir) {
-        include(nativeLibFileName)
-        include("**/$nativeLibFileName")
+    val libsToCopy = buildList {
+        add(nativeLibFileName)
+        if (buildAvx2Variant) add(avx2NativeLibFileName)
+    }
+
+    for (lib in libsToCopy) {
+        from(nativeBuildDir) {
+            include(lib)
+            include("**/$lib")
+        }
     }
     for (dir in configDirs) {
-        from(nativeBuildDir.map { it.dir(dir) }) {
-            include(nativeLibFileName)
-            include("**/$nativeLibFileName")
+        for (lib in libsToCopy) {
+            from(nativeBuildDir.map { it.dir(dir) }) {
+                include(lib)
+                include("**/$lib")
+            }
         }
     }
     into(nativeResourcesDir)
-    rename { nativeLibFileName }
 
     doLast {
-        val outFile = nativeResourcesDir.get().asFile.resolve(nativeLibFileName)
-        if (!outFile.isFile) {
-            throw GradleException(
-                "Native library was not copied into resources: ${outFile.absolutePath}. " +
-                    "Check CMake output location under ${nativeBuildDir.get().asFile.absolutePath}."
-            )
+        for (lib in libsToCopy) {
+            val outFile = nativeResourcesDir.get().asFile.resolve(lib)
+            if (!outFile.isFile) {
+                throw GradleException(
+                    "Native library was not copied into resources: ${outFile.absolutePath}. " +
+                        "Check CMake output location under ${nativeBuildDir.get().asFile.absolutePath}."
+                )
+            }
         }
     }
 }

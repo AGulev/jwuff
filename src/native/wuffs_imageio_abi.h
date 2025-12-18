@@ -44,6 +44,9 @@ WUFFS_IMAGEIO_API int wuffs_decode_frame_into(
     uint8_t* dst_pixels, size_t dst_len,
     wuffs_frame_result* out);
 
+// Returns 1 if this CPU+OS can execute AVX2 instructions safely, otherwise 0.
+WUFFS_IMAGEIO_API int wuffs_cpu_supports_avx2(void);
+
 WUFFS_IMAGEIO_API const char* wuffs_error_message(int code);
 
 #ifdef __cplusplus

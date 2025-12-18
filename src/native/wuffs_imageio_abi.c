@@ -6,6 +6,14 @@
 
 #include <stdlib.h>
 
+#if defined(__x86_64__) || defined(_M_X64) || defined(__i386__) || defined(_M_IX86)
+  #if defined(_MSC_VER)
+    #include <intrin.h>
+  #else
+    #include <cpuid.h>
+  #endif
+#endif
+
 enum {
   WUFFS_IMAGEIO_OK = 0,
   WUFFS_IMAGEIO_ERR_INVALID_ARGUMENT = -1,
@@ -230,6 +238,60 @@ WUFFS_IMAGEIO_API int wuffs_decode_frame_into(
   out->bytes_written = (uint32_t)expected;
   free(decoder);
   return WUFFS_IMAGEIO_OK;
+}
+
+WUFFS_IMAGEIO_API int wuffs_cpu_supports_avx2(void) {
+#if defined(__x86_64__) || defined(_M_X64) || defined(__i386__) || defined(_M_IX86)
+  // AVX2 requires:
+  //  - CPU support (CPUID.(EAX=7,ECX=0):EBX.AVX2[bit 5])
+  //  - OS support for XSAVE/XRESTORE + XMM/YMM state enabled (CPUID.(EAX=1):ECX.OSXSAVE + XGETBV)
+  uint32_t eax = 0, ebx = 0, ecx = 0, edx = 0;
+
+  // CPUID leaf 1: check OSXSAVE + AVX.
+#if defined(_MSC_VER)
+  int info1[4] = {0};
+  __cpuidex(info1, 1, 0);
+  ecx = (uint32_t)info1[2];
+#else
+  unsigned int a = 0, b = 0, c = 0, d = 0;
+  if (!__get_cpuid(1, &a, &b, &c, &d)) {
+    return 0;
+  }
+  ecx = (uint32_t)c;
+#endif
+
+  const uint32_t ecx_osxsave = (1u << 27);
+  const uint32_t ecx_avx = (1u << 28);
+  if (((ecx & ecx_osxsave) == 0) || ((ecx & ecx_avx) == 0)) {
+    return 0;
+  }
+
+  // XGETBV(0): ensure XMM (bit 1) and YMM (bit 2) state enabled by OS.
+  uint64_t xcr0 = 0;
+#if defined(_MSC_VER)
+  xcr0 = _xgetbv(0);
+#else
+  uint32_t xcr0_lo = 0, xcr0_hi = 0;
+  __asm__ volatile("xgetbv" : "=a"(xcr0_lo), "=d"(xcr0_hi) : "c"(0));
+  xcr0 = ((uint64_t)xcr0_hi << 32) | (uint64_t)xcr0_lo;
+#endif
+  if ((xcr0 & 0x6u) != 0x6u) {
+    return 0;
+  }
+
+  // CPUID leaf 7 subleaf 0: check AVX2.
+#if defined(_MSC_VER)
+  int info7[4] = {0};
+  __cpuidex(info7, 7, 0);
+  ebx = (uint32_t)info7[1];
+#else
+  __cpuid_count(7, 0, eax, ebx, ecx, edx);
+#endif
+  const uint32_t ebx_avx2 = (1u << 5);
+  return ((ebx & ebx_avx2) != 0) ? 1 : 0;
+#else
+  return 0;
+#endif
 }
 
 WUFFS_IMAGEIO_API const char* wuffs_error_message(int code) {

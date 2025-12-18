@@ -29,7 +29,7 @@ public final class WuffsFFI {
             current = lookup;
             if (current != null) return current;
             NativeLibrary.load();
-            lookup = SymbolLookup.loaderLookup();
+            lookup = SymbolLookup.libraryLookup(NativeLibrary.loadedLibraryPath(), ARENA);
             return lookup;
         }
     }
