@@ -26,10 +26,21 @@ tasks.test {
     useJUnitPlatform()
     maxHeapSize = "4g"
     jvmArgs("--enable-native-access=ALL-UNNAMED")
-    // Pass through Gradle's -D... flags to the forked test JVM.
-    systemProperty("jwuff.mem", System.getProperty("jwuff.mem"))
-    systemProperty("jwuff.perf", System.getProperty("jwuff.perf"))
-    systemProperty("jwuff.stress", System.getProperty("jwuff.stress"))
+    // Pass through selected Gradle -D... flags to the forked test JVM.
+    fun passThrough(key: String) {
+        val value = System.getProperty(key) ?: return
+        systemProperty(key, value)
+    }
+    passThrough("jwuff.mem")
+    passThrough("jwuff.perf")
+    passThrough("jwuff.stress")
+    passThrough("jwuff.log.decode")
+    passThrough("jwuff.debug.magic")
+    passThrough("jwuff.perf.path")
+    passThrough("jwuff.perf.assertRatio")
+    passThrough("jwuff.perf.minRatio")
+    passThrough("jwuff.perf.warmup")
+    passThrough("jwuff.perf.iters")
     testLogging {
         showStandardStreams = true
         events(
@@ -114,6 +125,7 @@ gradle.taskGraph.whenReady {
     }
 
     enableIfSelected("jwuff.perf", "PerformanceComparisonTest")
+    enableIfSelected("jwuff.perf", "ImageIoReadByteArrayPerformanceTest")
     enableIfSelected("jwuff.mem", "MemoryAndGcTest")
     enableIfSelected("jwuff.stress", "PngMultithreadedStressTest")
 }

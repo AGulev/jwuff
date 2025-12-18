@@ -28,24 +28,30 @@ class PerformanceComparisonTest {
         byte[] png = readResourceBytes("/images/test.png");
         var probe = WuffsFFI.probe(png);
 
-        ImageIO.scanForPlugins();
-        WuffsFFI.probe(png);
+        boolean prevUseCache = ImageIO.getUseCache();
+        ImageIO.setUseCache(false);
+        try {
+            ImageIO.scanForPlugins();
+            WuffsFFI.probe(png);
 
-        int warmup = 1;
-        int iters = 2;
+            int warmup = 1;
+            int iters = 2;
 
-        long standardNs = measureNs(warmup, iters, () -> readStandardImageIo(png));
-        long wuffsNs = measureNs(warmup, iters, () -> readWuffsPng(png));
+            long standardNs = measureNs(warmup, iters, () -> readStandardImageIo(png));
+            long wuffsNs = measureNs(warmup, iters, () -> readWuffsPng(png));
 
-        double standardMs = standardNs / 1_000_000.0 / iters;
-        double wuffsMs = wuffsNs / 1_000_000.0 / iters;
-        System.out.printf(
-                "test.png=%dx%d; standard ImageIO.read avg=%.2f ms; jwuff avg=%.2f ms%n",
-                probe.width(), probe.height(), standardMs, wuffsMs
-        );
+            double standardMs = standardNs / 1_000_000.0 / iters;
+            double wuffsMs = wuffsNs / 1_000_000.0 / iters;
+            System.out.printf(
+                    "test.png=%dx%d; standard ImageIO.read avg=%.2f ms; jwuff avg=%.2f ms%n",
+                    probe.width(), probe.height(), standardMs, wuffsMs
+            );
 
-        assertTrue(standardNs >= (wuffsNs * 2),
-                "Expected jwuff to be >= 2x faster; standard=" + standardMs + "ms, jwuff=" + wuffsMs + "ms");
+            assertTrue(standardNs >= (wuffsNs * 2),
+                    "Expected jwuff to be >= 2x faster; standard=" + standardMs + "ms, jwuff=" + wuffsMs + "ms");
+        } finally {
+            ImageIO.setUseCache(prevUseCache);
+        }
     }
 
     private static BufferedImage readStandardImageIo(byte[] bytes) throws Exception {

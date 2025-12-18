@@ -36,28 +36,34 @@ class PerformanceComparisonAlwaysTest {
     void jwuffIsFasterThanStandardImageIo_onTestPerfAlwaysPng() throws Exception {
         byte[] png = readResourceBytes("/images/test_perf_always.png");
 
-        ImageIO.scanForPlugins();
-        WuffsFFI.probe(png);
+        boolean prevUseCache = ImageIO.getUseCache();
+        ImageIO.setUseCache(false);
+        try {
+            ImageIO.scanForPlugins();
+            WuffsFFI.probe(png);
 
-        double standardMs = medianDecodeMs(5, () -> readStandardImageIo(png));
-        double jwuffMs = medianDecodeMs(5, () -> readWuffsPng(png));
+            double standardMs = medianDecodeMs(5, () -> readStandardImageIo(png));
+            double jwuffMs = medianDecodeMs(5, () -> readWuffsPng(png));
 
-        // Variant-level checks (baseline vs AVX2 where available). This avoids forcing AVX2 globally, which would
-        // break compatibility on older x86_64 CPUs.
-        VariantResults variants = runNativeVariantChecks(png);
+            // Variant-level checks (baseline vs AVX2 where available). This avoids forcing AVX2 globally, which would
+            // break compatibility on older x86_64 CPUs.
+            VariantResults variants = runNativeVariantChecks(png);
 
-        System.out.printf("test_perf_always.png performance (median ms)%n");
-        System.out.printf("%-20s %-12s %-12s %-12s%n", "reader", "standard", "jwuff", "native");
-        System.out.printf("%-20s %-12.2f %-12.2f %-12s%n", "all platforms", standardMs, jwuffMs, "-");
-        if (variants.baselineMs != null) {
-            System.out.printf("%-20s %-12s %-12s %-12.2f%n", "baseline native", "-", "-", variants.baselineMs);
+            System.out.printf("test_perf_always.png performance (median ms)%n");
+            System.out.printf("%-20s %-12s %-12s %-12s%n", "reader", "standard", "jwuff", "native");
+            System.out.printf("%-20s %-12.2f %-12.2f %-12s%n", "all platforms", standardMs, jwuffMs, "-");
+            if (variants.baselineMs != null) {
+                System.out.printf("%-20s %-12s %-12s %-12.2f%n", "baseline native", "-", "-", variants.baselineMs);
+            }
+            if (variants.avx2Ms != null) {
+                System.out.printf("%-20s %-12s %-12s %-12.2f%n", "avx2 native", "-", "-", variants.avx2Ms);
+            }
+
+            assertTrue(jwuffMs * 1.10 <= standardMs,
+                    "Expected jwuff to be faster; standard=" + standardMs + "ms, jwuff=" + jwuffMs + "ms");
+        } finally {
+            ImageIO.setUseCache(prevUseCache);
         }
-        if (variants.avx2Ms != null) {
-            System.out.printf("%-20s %-12s %-12s %-12.2f%n", "avx2 native", "-", "-", variants.avx2Ms);
-        }
-
-        assertTrue(jwuffMs * 1.10 <= standardMs,
-                "Expected jwuff to be faster; standard=" + standardMs + "ms, jwuff=" + jwuffMs + "ms");
     }
 
     private static VariantResults runNativeVariantChecks(byte[] png) throws Exception {

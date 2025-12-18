@@ -21,6 +21,8 @@ import java.io.IOException;
 import java.util.Collections;
 import java.util.Iterator;
 import java.util.Locale;
+import java.util.logging.Level;
+import java.util.logging.Logger;
 
 import com.agulev.jwuff.model.ProbeResult;
 import com.agulev.jwuff.metadata.BasicImageMetadata;
@@ -28,6 +30,8 @@ import com.agulev.jwuff.nativelib.WuffsFFI;
 import com.agulev.jwuff.nativelib.WuffsException;
 
 public abstract class AbstractWuffsImageReader extends ImageReader {
+    private static final Logger LOG = Logger.getLogger(AbstractWuffsImageReader.class.getName());
+    private static final boolean LOG_DECODE = Boolean.getBoolean("jwuff.log.decode");
     private ProbeResult probe;
     private byte[] inputBytes;
 
@@ -103,6 +107,23 @@ public abstract class AbstractWuffsImageReader extends ImageReader {
             WuffsFFI.decodeFrameInto(inputBytes(), imageIndex, pixels);
         } catch (WuffsException e) {
             throw new IIOException(e.getMessage(), e);
+        }
+
+        if (LOG_DECODE) {
+            String format = "unknown";
+            try {
+                ImageReaderSpi spi = getOriginatingProvider();
+                if (spi != null && spi.getFormatNames() != null && spi.getFormatNames().length > 0) {
+                    format = spi.getFormatNames()[0].toLowerCase(Locale.ROOT);
+                } else {
+                    String simple = getClass().getSimpleName().toLowerCase(Locale.ROOT);
+                    if (simple.contains("png")) format = "png";
+                    if (simple.contains("jpeg") || simple.contains("jpg")) format = "jpeg";
+                }
+            } catch (RuntimeException ignored) {
+            }
+            String msg = "jwuff used to decode " + format + " image w:" + width + " h:" + height;
+            LOG.log(Level.INFO, msg);
         }
         return toBufferedImageBgraNonPremul(width, height, rowBytes, pixels);
     }
